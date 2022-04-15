@@ -33,9 +33,10 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"go.k6.io/k6/js/common"
 	"go.k6.io/k6/js/modules"
+	"go.k6.io/k6/metrics"
 	"go.k6.io/k6/output"
-	"go.k6.io/k6/stats"
 )
 
 const (
@@ -76,9 +77,10 @@ type RootModule struct {
 
 // ModuleInstance represents an instance of the module for every VU.
 type ModuleInstance struct {
-	vu         modules.VU
-	rootModule *RootModule
-	exports    map[string]interface{}
+	vu             modules.VU
+	metricRegistry *metrics.Registry
+	rootModule     *RootModule
+	exports        map[string]interface{}
 }
 
 // Ensure the interfaces are implemented correctly.
@@ -91,9 +93,10 @@ var (
 // a new instance for each VU.
 func (r *RootModule) NewModuleInstance(vu modules.VU) modules.Instance {
 	mi := &ModuleInstance{
-		vu:         vu,
-		rootModule: r,
-		exports:    make(map[string]interface{}),
+		vu:             vu,
+		metricRegistry: vu.InitEnv().Registry,
+		rootModule:     r,
+		exports:        make(map[string]interface{}),
 	}
 
 	return mi
@@ -151,7 +154,7 @@ func (m *RootModule) Stop() error {
 	return nil
 }
 
-func (m *RootModule) AddMetricSamples(_ []stats.SampleContainer) {
+func (m *RootModule) AddMetricSamples(_ []metrics.SampleContainer) {
 }
 
 func (mi *ModuleInstance) Measure(prefix string) bool {
@@ -161,20 +164,35 @@ func (mi *ModuleInstance) Measure(prefix string) bool {
 		prefix = metricPrefix
 	}
 
-	return stats.PushIfNotDone(mi.vu.Context(), state.Samples, stats.Samples{
-		newSample(prefix, "hit", mi.rootModule.hit),
-		newSample(prefix, "miss", mi.rootModule.miss),
-		newSample(prefix, "entry", mi.rootModule.entries),
+	return metrics.PushIfNotDone(mi.vu.Context(), state.Samples, metrics.Samples{
+		newSample(mi.getMetric(prefix, "hit"), mi.rootModule.hit),
+		newSample(mi.getMetric(prefix, "miss"), mi.rootModule.miss),
+		newSample(mi.getMetric(prefix, "entry"), mi.rootModule.entries),
 	})
 }
 
-func newSample(prefix, name string, value uint32) stats.Sample {
-	return stats.Sample{
-		Metric: stats.New(fmt.Sprintf("%s_%s_count", prefix, name), stats.Counter),
+func newSample(m *metrics.Metric, value uint32) metrics.Sample {
+	return metrics.Sample{
+		Metric: m,
 		Tags:   nil,
 		Time:   time.Now(),
 		Value:  float64(value),
 	}
+}
+
+func (mi *ModuleInstance) getMetric(prefix, name string) *metrics.Metric {
+	key := fmt.Sprintf("%s_%s_count", prefix, name)
+
+	if m := mi.metricRegistry.Get(key); m != nil {
+		return m
+	}
+
+	m, err := mi.metricRegistry.NewMetric(key, metrics.Counter)
+	if err != nil {
+		common.Throw(mi.vu.Runtime(), err)
+	}
+
+	return m
 }
 
 func (m *RootModule) RoundTrip(req *http.Request) (*http.Response, error) {
