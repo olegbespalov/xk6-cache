@@ -34,7 +34,7 @@ Built for [k6](https://go.k6.io/k6) using [xk6](https://github.com/grafana/xk6).
 
 ## JavaScript API
 
-Usage of xk6-cache extension is transparent for k6 scripts. However sometimes good to see some metrics about cache usage (number of entries, cache hit count, cache miss count). 
+Usage of xk6-cache extension is transparent for k6 scripts. However, sometimes good to see some metrics about cache usage (number of entries, cache hit count, cache miss count).
 
 You may call [measure()](docs/README.md#measure) function to enable cache metrics.
 
@@ -56,7 +56,7 @@ After cache metrics is enabled, the normal k6 metrics output will include the fo
 
 ## Create cache file
 
-When cache file (pointed by `$XK6_CACHE`) is missing and you run k6 with `--out cache` flag then file will created.
+When cache file (pointed by `$XK6_CACHE`) is missing, and you run k6 with `--out cache` flag then file will created.
 
 ```plain
 $ XK6_CACHE=vendor.k6c k6 run --out cache script.js
@@ -72,11 +72,11 @@ $ XK6_CACHE=vendor.k6c k6 run --out cache script.js
      output: cache (vendor.k6c)
 ```
 
-If cache file already exists then `--out cache` has no effect, cache file remain untouch. This enable you to use `--out cache` flag always and simly delete cache file when you want to update it.
+If cache file already exists then `--out cache` has no effect, cache file remain untouched. This enables you to use `--out cache` always flag and simply delete cache file when you want to update it.
 
 ## Use cache file
 
-Simly point `$XK6_CACHE` to existing cache file. Usage of `--out cache` flag has no effect if cache file exists (this is why you see dash instead of output file name).
+Simply point `$XK6_CACHE` to existing cache file. Usage of `--out cache` flag has no effect if cache file exists (this is why you see dash instead of output file name).
 
 ```plain
 $ XK6_CACHE=vendor.k6c k6 run --out cache script.js
@@ -94,7 +94,7 @@ $ XK6_CACHE=vendor.k6c k6 run --out cache script.js
 
 ## How it works
 
-Well, it's a bit tricky. Since k6 extension API has no lifecycle hooks and the [k6 module loader](https://github.com/k6io/k6/tree/master/loader) is not usable from extensions, xk6-cache hijacks `http.DefaultTransport` and do the cache checking and cache recording as a [http.RoundTripper](https://golang.org/pkg/net/http/#RoundTripper) interceptor.
+Well, it's a bit tricky. Since k6 extension API has no lifecycle hooks and the [k6 module loader](https://github.com/grafana/k6/tree/master/loader) is not usable from extensions, xk6-cache hijacks `http.DefaultTransport` and do the cache checking and cache recording as a [http.RoundTripper](https://golang.org/pkg/net/http/#RoundTripper) interceptor.
 
 It is not a risk for k6 scripts, because `k6/http` module doesn't rely on `http.DefaultTransport`. It would be nice to have an API for extensions to implement custom module loaders.
 
