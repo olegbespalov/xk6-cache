@@ -24,7 +24,6 @@ package cache
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -35,7 +34,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"go.k6.io/k6/js/modules"
-	"go.k6.io/k6/lib"
 	"go.k6.io/k6/output"
 	"go.k6.io/k6/stats"
 )
@@ -64,7 +62,9 @@ func init() {
 	}
 }
 
-type Module struct {
+// RootModule is the global module object type. It is instantiated once per test
+// run and will be used to create k6/x/cache module instances for each VU.
+type RootModule struct {
 	log       logrus.FieldLogger
 	cache     *Cache
 	recorder  *recorder
@@ -74,8 +74,41 @@ type Module struct {
 	entries   uint32
 }
 
-func New(file string, transport http.RoundTripper, log logrus.FieldLogger) *Module {
-	mod := new(Module)
+// ModuleInstance represents an instance of the module for every VU.
+type ModuleInstance struct {
+	vu         modules.VU
+	rootModule *RootModule
+	exports    map[string]interface{}
+}
+
+// Ensure the interfaces are implemented correctly.
+var (
+	_ modules.Instance = &ModuleInstance{}
+	_ modules.Module   = &RootModule{}
+)
+
+// NewModuleInstance implements the modules.Module interface and returns
+// a new instance for each VU.
+func (r *RootModule) NewModuleInstance(vu modules.VU) modules.Instance {
+	mi := &ModuleInstance{
+		vu:         vu,
+		rootModule: r,
+		exports:    make(map[string]interface{}),
+	}
+
+	return mi
+}
+
+// Exports implements the modules.Instance interface and returns the exports
+// of the JS module.
+func (mi *ModuleInstance) Exports() modules.Exports {
+	return modules.Exports{
+		Default: mi,
+	}
+}
+
+func New(file string, transport http.RoundTripper, log logrus.FieldLogger) *RootModule {
+	mod := new(RootModule)
 
 	mod.log = log
 
@@ -98,7 +131,7 @@ func New(file string, transport http.RoundTripper, log logrus.FieldLogger) *Modu
 	return mod
 }
 
-func (m *Module) Description() string {
+func (m *RootModule) Description() string {
 	if m.recorder == nil {
 		return "cache (-)"
 	}
@@ -106,7 +139,7 @@ func (m *Module) Description() string {
 	return fmt.Sprintf("cache (%s)", m.recorder.file)
 }
 
-func (m *Module) Start() (err error) {
+func (m *RootModule) Start() (err error) {
 	if m.recorder != nil {
 		return m.recorder.save()
 	}
@@ -114,24 +147,24 @@ func (m *Module) Start() (err error) {
 	return nil
 }
 
-func (m *Module) Stop() error {
+func (m *RootModule) Stop() error {
 	return nil
 }
 
-func (m *Module) AddMetricSamples(_ []stats.SampleContainer) {
+func (m *RootModule) AddMetricSamples(_ []stats.SampleContainer) {
 }
 
-func (m *Module) Measure(ctx context.Context, prefix string) bool {
-	state := lib.GetState(ctx)
+func (mi *ModuleInstance) Measure(prefix string) bool {
+	state := mi.vu.State()
 
 	if prefix == "" {
 		prefix = metricPrefix
 	}
 
-	return stats.PushIfNotDone(ctx, state.Samples, stats.Samples{
-		newSample(prefix, "hit", m.hit),
-		newSample(prefix, "miss", m.miss),
-		newSample(prefix, "entry", m.entries),
+	return stats.PushIfNotDone(mi.vu.Context(), state.Samples, stats.Samples{
+		newSample(prefix, "hit", mi.rootModule.hit),
+		newSample(prefix, "miss", mi.rootModule.miss),
+		newSample(prefix, "entry", mi.rootModule.entries),
 	})
 }
 
@@ -144,7 +177,7 @@ func newSample(prefix, name string, value uint32) stats.Sample {
 	}
 }
 
-func (m *Module) RoundTrip(req *http.Request) (*http.Response, error) {
+func (m *RootModule) RoundTrip(req *http.Request) (*http.Response, error) {
 	if m.cache != nil {
 		if resp := m.cache.get(req); resp != nil {
 			atomic.AddUint32(&m.hit, 1)
